@@ -14,6 +14,7 @@ import 'package:gal/gal.dart';
 import '../models/video_editor_models.dart';
 import '../services/project_manager.dart';
 import '../services/history_manager.dart';
+import '../services/editor_theme.dart';
 
 class EditorScreen extends StatefulWidget {
   final Project project;
@@ -1860,12 +1861,16 @@ class _EditorScreenState extends State<EditorScreen> {
     final currentTimeStr = _formatTime(_currentTimeMs);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F10),
+      backgroundColor: EditorTheme.background, // True black background
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: EditorTheme.background,
         elevation: 0,
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(color: EditorTheme.border, height: 1, thickness: 1),
+        ),
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
+          icon: const Icon(Icons.close, color: EditorTheme.textPrimary),
           onPressed: () {
             _saveProjectState();
             Navigator.of(context).pop();
@@ -1873,15 +1878,15 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
         title: Text(
           _project.name,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: EditorTheme.textPrimary),
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.undo, color: _historyManager.canUndo ? Colors.white : Colors.white24),
+            icon: Icon(Icons.undo, color: _historyManager.canUndo ? EditorTheme.textPrimary : EditorTheme.textMuted),
             onPressed: _historyManager.canUndo ? _undo : null,
           ),
           IconButton(
-            icon: Icon(Icons.redo, color: _historyManager.canRedo ? Colors.white : Colors.white24),
+            icon: Icon(Icons.redo, color: _historyManager.canRedo ? EditorTheme.textPrimary : EditorTheme.textMuted),
             onPressed: _historyManager.canRedo ? _redo : null,
           ),
           const SizedBox(width: 8),
@@ -1889,12 +1894,7 @@ class _EditorScreenState extends State<EditorScreen> {
             padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
             child: ElevatedButton(
               onPressed: _openExportSettingsDialog,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.tealAccent.shade400,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
+              style: EditorTheme.getButtonStyle(isPrimary: true),
               child: const Text("Export", style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
@@ -1903,56 +1903,105 @@ class _EditorScreenState extends State<EditorScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // Preview Player and Controls
             Expanded(
               flex: 4,
               child: Center(
-                child: Container(
-                  margin: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.grey.shade900, width: 1.5),
-                  ),
-                  clipBehavior: Clip.hardEdge,
-                  child: _buildPreviewPlayer(),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 8),
+                    // Digital Timecode Display in top bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: EditorTheme.buttonFill,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: EditorTheme.buttonBorder),
+                      ),
+                      child: Text(
+                        "$currentTimeStr / $totalDurationStr",
+                        style: const TextStyle(
+                          color: EditorTheme.playhead, // digital green
+                          fontFamily: 'monospace',
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Video Preview Container with thin dark border
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: EditorTheme.border, width: 1.5),
+                        ),
+                        clipBehavior: Clip.hardEdge,
+                        child: _buildPreviewPlayer(),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Centered Playback controls row below preview
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.skip_previous_rounded, size: 28, color: EditorTheme.iconPrimary),
+                          onPressed: () => _seekTo(0),
+                          tooltip: "Skip to Beginning",
+                        ),
+                        const SizedBox(width: 16),
+                        IconButton(
+                          icon: Icon(
+                            _isPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_filled_rounded,
+                            size: 40,
+                            color: EditorTheme.playhead,
+                          ),
+                          onPressed: _togglePlayPause,
+                          tooltip: _isPlaying ? "Pause" : "Play",
+                        ),
+                        const SizedBox(width: 16),
+                        IconButton(
+                          icon: const Icon(Icons.skip_next_rounded, size: 28, color: EditorTheme.iconPrimary),
+                          onPressed: () => _seekTo(totalDuration),
+                          tooltip: "Skip to End",
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
+            // Timeline Ruler Scale Adjuster
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Text(
-                    "$currentTimeStr / $totalDurationStr",
-                    style: const TextStyle(color: Colors.white70, fontSize: 13, fontFamily: 'monospace'),
-                  ),
-                  Row(
-                    children: [
-                      const Icon(Icons.zoom_in, color: Colors.white38, size: 18),
-                      SizedBox(
-                        width: 100,
-                        child: Slider(
-                          value: _zoomScale,
-                          min: 0.2,
-                          max: 3.0,
-                          activeColor: Colors.tealAccent,
-                          inactiveColor: Colors.white24,
-                          onChanged: (val) {
-                            setState(() => _zoomScale = val);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  IconButton(
-                    icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled, size: 40, color: Colors.tealAccent),
-                    onPressed: _togglePlayPause,
+                  const Icon(Icons.zoom_in, color: EditorTheme.textSecondary, size: 16),
+                  SizedBox(
+                    width: 110,
+                    child: Slider(
+                      value: _zoomScale,
+                      min: 0.2,
+                      max: 3.0,
+                      activeColor: EditorTheme.playhead,
+                      inactiveColor: EditorTheme.buttonBorder,
+                      onChanged: (val) {
+                        setState(() => _zoomScale = val);
+                      },
+                    ),
                   ),
                 ],
               ),
             ),
+            // Toolbar controls panel (Speed, Volume, Audio, AI tools...)
             _buildToolbarPanel(),
+            // Premiere-style Multi-track timeline lanes
             Expanded(
               flex: 5,
               child: _buildTimeline(totalDuration),
@@ -2790,7 +2839,10 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildPanelWrapper({required String title, required Widget child}) {
     return Container(
-      color: const Color(0xFF161618),
+      decoration: const BoxDecoration(
+        color: EditorTheme.background,
+        border: Border(top: BorderSide(color: EditorTheme.border, width: 1.5)),
+      ),
       padding: const EdgeInsets.all(12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -2799,10 +2851,10 @@ class _EditorScreenState extends State<EditorScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent, fontSize: 13)),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: EditorTheme.playhead, fontSize: 13)),
               GestureDetector(
                 onTap: () => setState(() => _activePanel = 'none'),
-                child: const Icon(Icons.close, size: 18, color: Colors.white70),
+                child: const Icon(Icons.close, size: 18, color: EditorTheme.textSecondary),
               ),
             ],
           ),
@@ -2819,16 +2871,22 @@ class _EditorScreenState extends State<EditorScreen> {
       opacity: isEnabled ? 1.0 : 0.3,
       child: InkWell(
         onTap: onTap,
-        child: SizedBox(
+        child: Container(
           width: 72,
+          margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          decoration: BoxDecoration(
+            color: EditorTheme.buttonFill,
+            border: Border.all(color: EditorTheme.buttonBorder, width: 1),
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 24, color: color ?? Colors.white),
-              const SizedBox(height: 6),
+              Icon(icon, size: 20, color: color ?? EditorTheme.iconPrimary),
+              const SizedBox(height: 4),
               Text(
                 label,
-                style: const TextStyle(fontSize: 10, color: Colors.white70),
+                style: const TextStyle(fontSize: 9, color: EditorTheme.textSecondary, fontWeight: FontWeight.w500),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -2839,84 +2897,195 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  String _formatRulerTime(int ms) {
+    final totalSeconds = ms ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
   Widget _buildTimeline(int totalDuration) {
     final double timelineWidth = totalDuration * 0.15 * _zoomScale;
 
     return Container(
-      color: const Color(0xFF131314),
+      color: EditorTheme.background, // True black
       child: Column(
         children: [
+          // Spacer/Ruler row
           Container(
             height: 30,
             width: double.infinity,
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.grey.shade900)),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: EditorTheme.border)),
             ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const NeverScrollableScrollPhysics(),
-              child: SizedBox(
-                width: timelineWidth + 500,
-                child: Stack(
-                  children: List.generate((totalDuration ~/ 1000) + 5, (index) {
-                    final timeMs = index * 1000;
-                    final leftPos = timeMs * 0.15 * _zoomScale;
-                    return Positioned(
-                      left: leftPos,
-                      bottom: 4,
-                      child: Text(
-                        "${index}s",
-                        style: const TextStyle(color: Colors.white30, fontSize: 10, fontFamily: 'monospace'),
-                      ),
-                    );
-                  }),
+            child: Row(
+              children: [
+                // Fixed left spacer matching header width (80)
+                Container(
+                  width: 80,
+                  height: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: EditorTheme.background,
+                    border: Border(right: BorderSide(color: EditorTheme.border)),
+                  ),
                 ),
-              ),
+                // Timecode ruler scrollable content
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: SizedBox(
+                      width: timelineWidth + 500,
+                      child: Stack(
+                        children: List.generate((totalDuration ~/ 5000) + 5, (index) {
+                          final timeMs = index * 5000;
+                          final leftPos = timeMs * 0.15 * _zoomScale;
+                          return Positioned(
+                            left: leftPos,
+                            bottom: 4,
+                            child: Text(
+                              _formatRulerTime(timeMs),
+                              style: const TextStyle(color: EditorTheme.textSecondary, fontSize: 10, fontFamily: 'monospace'),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+          // Scrollable tracks lanes stacked below
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return Stack(
-                  children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SizedBox(
-                        width: timelineWidth + constraints.maxWidth,
-                        child: Column(
-                          children: [
-                            _buildTrackLane(TrackType.mainVideo),
-                            _buildTrackLane(TrackType.text),
-                            _buildTrackLane(TrackType.audio),
-                          ],
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      child: Container(
-                        width: 1.5,
-                        color: Colors.redAccent,
-                      ),
-                    ),
-                    GestureDetector(
-                      onHorizontalDragUpdate: (details) {
-                        final double dragDelta = details.primaryDelta ?? 0.0;
-                        final double scaleFactor = 0.15 * _zoomScale;
-                        final int timeDeltaMs = -(dragDelta / scaleFactor).toInt();
-                        _seekTo(_currentTimeMs + timeDeltaMs);
-                      },
-                      child: Container(
-                        height: 30,
-                        color: Colors.transparent,
-                      ),
-                    ),
-                  ],
-                );
-              },
+            child: Row(
+              children: [
+                // Fixed track headers column on the left
+                Container(
+                  width: 80,
+                  color: EditorTheme.background,
+                  child: Column(
+                    children: [
+                      _buildTrackHeader(TrackType.mainVideo),
+                      _buildTrackHeader(TrackType.text),
+                      _buildTrackHeader(TrackType.audio),
+                    ],
+                  ),
+                ),
+                // Scrollable track content
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Stack(
+                        children: [
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SizedBox(
+                              width: timelineWidth + constraints.maxWidth,
+                              child: Column(
+                                children: [
+                                  _buildTrackLane(TrackType.mainVideo),
+                                  _buildTrackLane(TrackType.text),
+                                  _buildTrackLane(TrackType.audio),
+                                ],
+                              ),
+                            ),
+                          ),
+                          // Playhead vertical accent-colored line synced to currentTimeMs
+                          Positioned(
+                            left: _currentTimeMs * 0.15 * _zoomScale,
+                            top: 0,
+                            bottom: 0,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: const [
+                                SizedBox(
+                                  width: 1.5,
+                                  height: double.infinity,
+                                  child: VerticalDivider(
+                                    color: EditorTheme.playhead,
+                                    thickness: 1.5,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                // Playhead pin head at top of timeline lane
+                                Positioned(
+                                  top: -4,
+                                  left: -6,
+                                  child: Icon(
+                                    Icons.arrow_drop_down_rounded,
+                                    size: 14,
+                                    color: EditorTheme.playhead,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Horizontal drag layer to seek playhead
+                          GestureDetector(
+                            onHorizontalDragUpdate: (details) {
+                              final double dragDelta = details.primaryDelta ?? 0.0;
+                              final double scaleFactor = 0.15 * _zoomScale;
+                              final int timeDeltaMs = -(dragDelta / scaleFactor).toInt();
+                              _seekTo(_currentTimeMs + timeDeltaMs);
+                            },
+                            child: Container(
+                              height: 30,
+                              color: Colors.transparent,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrackHeader(TrackType type) {
+    String label;
+    IconData icon;
+    switch (type) {
+      case TrackType.mainVideo:
+        label = "Video";
+        icon = Icons.movie_creation_outlined;
+        break;
+      case TrackType.text:
+        label = "Text/Overlay";
+        icon = Icons.text_fields;
+        break;
+      case TrackType.audio:
+        label = "Audio";
+        icon = Icons.music_note;
+        break;
+      default:
+        label = "Overlay";
+        icon = Icons.layers_outlined;
+    }
+
+    return Container(
+      height: 65,
+      width: 80,
+      decoration: const BoxDecoration(
+        color: EditorTheme.background,
+        border: Border(
+          bottom: BorderSide(color: EditorTheme.border),
+          right: BorderSide(color: EditorTheme.border),
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: EditorTheme.iconPrimary, size: 16),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(color: EditorTheme.textSecondary, fontSize: 9, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -2929,49 +3098,14 @@ class _EditorScreenState extends State<EditorScreen> {
       orElse: () => Track(id: '', type: type, zOrder: 0, clips: []),
     );
 
-    String label;
-    IconData icon;
-    Color color;
-    switch (type) {
-      case TrackType.mainVideo:
-        label = "Video Track";
-        icon = Icons.movie_creation_outlined;
-        color = Colors.teal.shade800.withOpacity(0.5);
-        break;
-      case TrackType.text:
-        label = "Text Track";
-        icon = Icons.text_fields;
-        color = Colors.purple.shade900.withOpacity(0.5);
-        break;
-      case TrackType.audio:
-        label = "Audio Track";
-        icon = Icons.music_note;
-        color = Colors.blue.shade900.withOpacity(0.5);
-        break;
-      default:
-        label = "Overlay";
-        icon = Icons.layers_outlined;
-        color = Colors.grey.shade900;
-    }
-
     return Container(
       height: 65,
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade900)),
+      decoration: const BoxDecoration(
+        color: EditorTheme.background,
+        border: Border(bottom: BorderSide(color: EditorTheme.border)),
       ),
       child: Stack(
         children: [
-          Positioned(
-            left: 8,
-            top: 8,
-            child: Row(
-              children: [
-                Icon(icon, color: Colors.white54, size: 14),
-                const SizedBox(width: 4),
-                Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-              ],
-            ),
-          ),
           ...track.clips.map((clip) {
             final double left = clip.startInTimelineMs * 0.15 * _zoomScale;
             final double width = clip.durationMs * 0.15 * _zoomScale;
@@ -2981,10 +3115,52 @@ class _EditorScreenState extends State<EditorScreen> {
                 ? clip.sourcePath!.split(Platform.pathSeparator).last
                 : clip.textContent ?? 'Text Clip';
 
+            // Determine rendering decorations based on Premiere Pro colors
+            BoxDecoration decoration;
+            if (type == TrackType.mainVideo) {
+              final indexInTrack = track.clips.indexOf(clip);
+              final Color segmentColor = indexInTrack % 2 == 0 
+                  ? EditorTheme.videoClipFill1 
+                  : EditorTheme.videoClipFill2;
+
+              decoration = BoxDecoration(
+                color: segmentColor,
+                border: Border(
+                  right: const BorderSide(color: Colors.black, width: 2.0), // segment divider cuts
+                  top: BorderSide(color: isSelected ? EditorTheme.playhead : EditorTheme.videoClipBorder, width: isSelected ? 2 : 1),
+                  bottom: BorderSide(color: isSelected ? EditorTheme.playhead : EditorTheme.videoClipBorder, width: isSelected ? 2 : 1),
+                  left: BorderSide(color: isSelected ? EditorTheme.playhead : EditorTheme.videoClipBorder, width: isSelected ? 2 : 1),
+                ),
+              );
+            } else if (type == TrackType.audio) {
+              decoration = BoxDecoration(
+                color: EditorTheme.audioClipFill,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: isSelected ? EditorTheme.playhead : Colors.transparent,
+                  width: isSelected ? 2 : 1,
+                ),
+              );
+            } else {
+              // Text or Sticker overlay
+              final bool isSticker = clip.id.contains('sticker');
+              final Color fill = isSticker ? EditorTheme.stickerClipFill : EditorTheme.textClipFill;
+              final Color border = isSticker ? EditorTheme.stickerClipBorder : EditorTheme.textClipBorder;
+
+              decoration = BoxDecoration(
+                color: fill,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: isSelected ? EditorTheme.playhead : border,
+                  width: isSelected ? 2 : 1,
+                ),
+              );
+            }
+
             return Positioned(
               left: left,
-              top: 24,
-              bottom: 8,
+              top: 14,
+              bottom: 10,
               width: width,
               child: GestureDetector(
                 onTap: () {
@@ -3000,23 +3176,13 @@ class _EditorScreenState extends State<EditorScreen> {
                   });
                 },
                 child: Container(
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected ? Colors.tealAccent : Colors.tealAccent.withOpacity(0.2),
-                      width: isSelected ? 2 : 1,
-                    ),
-                  ),
+                  decoration: decoration,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
                       if (type == TrackType.audio)
                         Positioned.fill(
-                          child: Opacity(
-                            opacity: 0.35,
-                            child: _buildProceduralWaveform(clip),
-                          ),
+                          child: _buildProceduralWaveform(clip),
                         ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -3024,7 +3190,7 @@ class _EditorScreenState extends State<EditorScreen> {
                           clipName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                          style: const TextStyle(color: EditorTheme.textPrimary, fontSize: 10, fontWeight: FontWeight.bold),
                         ),
                       ),
                       
@@ -3068,7 +3234,7 @@ class _EditorScreenState extends State<EditorScreen> {
   Widget _buildProceduralWaveform(TimelineClip clip) {
     final int seed = clip.id.hashCode;
     final Random random = Random(seed);
-    final List<int> barHeights = List.generate(40, (_) => random.nextInt(32) + 4);
+    final List<int> barHeights = List.generate(40, (_) => random.nextInt(26) + 4);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3080,8 +3246,8 @@ class _EditorScreenState extends State<EditorScreen> {
               width: max(1.5, constraints.maxWidth / 45),
               height: h.toDouble(),
               decoration: BoxDecoration(
-                color: Colors.cyanAccent.shade700,
-                borderRadius: BorderRadius.circular(2),
+                color: EditorTheme.audioWaveform,
+                borderRadius: BorderRadius.circular(1),
               ),
             );
           }).toList(),
