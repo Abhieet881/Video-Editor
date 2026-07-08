@@ -40,6 +40,10 @@ dependencies:
   image_picker: ^1.2.3
   ffmpeg_kit_flutter_new: ^4.3.2
   gal: ^2.3.2
+  intl: ^0.20.3
+  speech_to_text: ^7.4.0
+  flutter_tts: ^4.2.5
+  record: ^7.1.1
 
 dev_dependencies:
   flutter_test:
