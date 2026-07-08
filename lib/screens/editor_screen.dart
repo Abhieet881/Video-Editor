@@ -15,6 +15,8 @@ import '../models/video_editor_models.dart';
 import '../services/project_manager.dart';
 import '../services/history_manager.dart';
 import '../services/editor_theme.dart';
+import 'export_screen.dart';
+import 'text_sticker_screen.dart';
 
 class EditorScreen extends StatefulWidget {
   final Project project;
@@ -1160,207 +1162,12 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
-  // Open Export settings dialog
+  // Open Export screen
   void _openExportSettingsDialog() {
-    final nameController = TextEditingController(text: _project.name);
-    double coverSliderVal = 0.0;
-    String selectedRes = '1080p';
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF141416),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ExportScreen(project: _project),
       ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final totalDuration = _calculateTotalDuration();
-            
-            // Width and heights based on selection
-            int targetW = 1080;
-            int targetH = 1920;
-            if (selectedRes == '720p') {
-              targetW = 720;
-              targetH = 1280;
-            } else if (selectedRes == '480p') {
-              targetW = 480;
-              targetH = 854;
-            }
-
-            if (_project.aspectRatio == EditorAspectRatio.ratio16to9) {
-              final tmp = targetW;
-              targetW = targetH;
-              targetH = tmp;
-            } else if (_project.aspectRatio == EditorAspectRatio.ratio1to1) {
-              targetH = targetW;
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20.0,
-                right: 20.0,
-                top: 24.0,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24.0,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text("Export Masterpiece & Settings", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white70),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Rename TextField
-                    const Text("Draft Name:", style: TextStyle(fontSize: 12, color: Colors.white60)),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: nameController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      onChanged: (val) {
-                        setState(() {
-                          _project.name = val;
-                        });
-                        _saveProjectState();
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    // Protection Mode Switch
-                    SwitchListTile(
-                      title: const Text("Draft Protection Mode", style: TextStyle(fontSize: 13, color: Colors.white70)),
-                      subtitle: const Text("Prevents accidental deletion from the home screen", style: TextStyle(fontSize: 10, color: Colors.white30)),
-                      value: _project.isProtected,
-                      activeColor: Colors.tealAccent,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) {
-                        setModalState(() {
-                          _project.isProtected = val;
-                        });
-                        setState(() {});
-                        _pushHistoryState();
-                      },
-                    ),
-                    const Divider(color: Colors.white12, height: 28),
-                    // Cover selection section
-                    const Text("Choose Cover Frame:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.tealAccent)),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        // Cover preview
-                        Container(
-                          width: 80,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey.shade900),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: _project.thumbnailPath != null
-                              ? Image.file(File(_project.thumbnailPath!), fit: BoxFit.cover)
-                              : const Center(child: Icon(Icons.photo_outlined, color: Colors.white24)),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Slider(
-                                value: coverSliderVal,
-                                min: 0.0,
-                                max: 1.0,
-                                activeColor: Colors.tealAccent,
-                                inactiveColor: Colors.white24,
-                                onChanged: (val) {
-                                  setModalState(() {
-                                    coverSliderVal = val;
-                                  });
-                                  // Seek preview player to the timestamp
-                                  _seekTo((val * totalDuration).toInt());
-                                },
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text("Time: ${_formatTime((coverSliderVal * totalDuration).toInt())}", style: const TextStyle(fontSize: 10, color: Colors.white54)),
-                                  ElevatedButton(
-                                    onPressed: () async {
-                                      final targetMs = (coverSliderVal * totalDuration).toInt();
-                                      await _extractCoverFrame(targetMs);
-                                      setModalState(() {});
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.tealAccent.shade700,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                                    ),
-                                    child: const Text("Capture Cover", style: TextStyle(fontSize: 11)),
-                                  ),
-                                ],
-                              )
-                            ],
-                          ),
-                        )
-                      ],
-                    ),
-                    const Divider(color: Colors.white12, height: 28),
-                    // Resolution selector
-                    const Text("Resolution Settings:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.tealAccent)),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: ['1080p', '720p', '480p'].map((res) {
-                        final isSelected = selectedRes == res;
-                        return ChoiceChip(
-                          label: Text(res),
-                          selected: isSelected,
-                          selectedColor: Colors.tealAccent,
-                          labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
-                          onSelected: (_) {
-                            setModalState(() {
-                              selectedRes = res;
-                            });
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 24),
-                    // Export Submit Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: () => _startRenderPipeline(selectedRes, targetW, targetH),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.tealAccent,
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                        child: const Text("Render & Export", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -1537,24 +1344,36 @@ class _EditorScreenState extends State<EditorScreen> {
     _pushHistoryState();
   }
 
-  void _addTextOverlay() {
+  Future<void> _addTextOverlay() async {
     final textTrack = _project.tracks.firstWhere(
       (t) => t.type == TrackType.text,
       orElse: () => Track(id: 'track_text_1', type: TrackType.text, zOrder: 1, clips: []),
     );
 
-    final newClip = TimelineClip(
+    final tempClip = TimelineClip(
       id: 'text_${DateTime.now().millisecondsSinceEpoch}',
       startInTimelineMs: _currentTimeMs,
       durationMs: 3000,
       startInSourceMs: 0,
       transform: ClipTransform(scale: 1.2),
       effects: [],
-      textContent: "Tap to edit text",
+      textContent: "Double tap to edit",
     );
 
-    textTrack.clips.add(newClip);
-    _pushHistoryState();
+    final resultClip = await Navigator.of(context).push<TimelineClip>(
+      MaterialPageRoute(
+        builder: (context) => TextStickerScreen(clip: tempClip),
+      ),
+    );
+
+    if (resultClip != null) {
+      setState(() {
+        textTrack.clips.add(resultClip);
+        _selectedClip = resultClip;
+        _selectedTrack = textTrack;
+      });
+      _pushHistoryState();
+    }
   }
 
   void _addStickerOverlay(String emoji) {
@@ -2167,7 +1986,36 @@ class _EditorScreenState extends State<EditorScreen> {
           _buildToolBtn(
             icon: Icons.sentiment_satisfied_alt_rounded,
             label: "Stickers",
-            onTap: () => setState(() => _activePanel = 'stickers'),
+            onTap: () async {
+              final textTrack = _project.tracks.firstWhere(
+                (t) => t.type == TrackType.text,
+                orElse: () => Track(id: 'track_text_1', type: TrackType.text, zOrder: 1, clips: []),
+              );
+              final tempClip = TimelineClip(
+                id: 'sticker_${DateTime.now().millisecondsSinceEpoch}',
+                startInTimelineMs: _currentTimeMs,
+                durationMs: 3000,
+                startInSourceMs: 0,
+                transform: ClipTransform(scale: 1.5),
+                effects: [],
+                textContent: '😀',
+              );
+
+              final resultClip = await Navigator.of(context).push<TimelineClip>(
+                MaterialPageRoute(
+                  builder: (context) => TextStickerScreen(clip: tempClip),
+                ),
+              );
+
+              if (resultClip != null) {
+                setState(() {
+                  textTrack.clips.add(resultClip);
+                  _selectedClip = resultClip;
+                  _selectedTrack = textTrack;
+                });
+                _pushHistoryState();
+              }
+            },
           ),
           _buildToolBtn(
             icon: Icons.style_outlined,
@@ -3174,6 +3022,21 @@ class _EditorScreenState extends State<EditorScreen> {
                       _selectedTrack = track;
                     }
                   });
+                },
+                onDoubleTap: () async {
+                  if (type == TrackType.text || clip.id.contains('text') || clip.id.contains('sticker')) {
+                    final updatedClip = await Navigator.of(context).push<TimelineClip>(
+                      MaterialPageRoute(
+                        builder: (context) => TextStickerScreen(clip: clip),
+                      ),
+                    );
+                    if (updatedClip != null) {
+                      setState(() {
+                        _selectedClip = updatedClip;
+                      });
+                      _pushHistoryState();
+                    }
+                  }
                 },
                 child: Container(
                   decoration: decoration,
