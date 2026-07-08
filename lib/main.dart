@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:gal/gal.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -334,7 +335,7 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
       final returnCode = await session.getReturnCode();
 
       if (ReturnCode.isSuccess(returnCode)) {
-        _showSuccessDialog(outputPath);
+        await _saveToGalleryAndShowResult(outputPath);
       } else {
         // 2. Fallback to full re-encode if keyframe copy fails
         debugPrint("Fast copy failed, falling back to full re-encode...");
@@ -343,7 +344,7 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
         final encodeReturnCode = await encodeSession.getReturnCode();
 
         if (ReturnCode.isSuccess(encodeReturnCode)) {
-          _showSuccessDialog(outputPath);
+          await _saveToGalleryAndShowResult(outputPath);
         } else {
           throw Exception("FFmpeg processing failed.");
         }
@@ -366,7 +367,66 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
     }
   }
 
-  void _showSuccessDialog(String path) {
+  Future<void> _saveToGalleryAndShowResult(String tempPath) async {
+    try {
+      // 1. Request access permissions
+      bool hasAccess = await Gal.hasAccess(toAlbum: true);
+      if (!hasAccess) {
+        hasAccess = await Gal.requestAccess(toAlbum: true);
+      }
+
+      if (!hasAccess) {
+        throw Exception("Access to photo library/gallery was denied by the user. Please enable permissions in settings.");
+      }
+
+      // 2. Save video to public storage under custom album (Movies/AI_Video_Editor)
+      const albumName = 'AI_Video_Editor';
+      await Gal.putVideo(tempPath, album: albumName);
+
+      // 3. Delete intermediate temp file from cache
+      final file = File(tempPath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      if (!mounted) return;
+
+      // 4. Show success SnackBar with "View" action
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Video saved to Gallery under Movies/AI_Video_Editor/"),
+          backgroundColor: Colors.teal.shade800,
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: "VIEW",
+            textColor: Colors.tealAccent,
+            onPressed: () async {
+              try {
+                await Gal.open();
+              } catch (e) {
+                debugPrint("Error opening gallery: $e");
+              }
+            },
+          ),
+        ),
+      );
+
+      // 5. Show Success Dialog
+      _showSuccessDialog('Gallery (Movies/AI_Video_Editor)');
+
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to save to Gallery: $e"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showSuccessDialog(String displayPath) {
     if (!mounted) return;
     showDialog<void>(
       context: context,
@@ -374,8 +434,8 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: const Color(0xFF141414),
-          title: Row(
-            children: const [
+          title: const Row(
+            children: [
               Icon(Icons.check_circle_outline, color: Colors.tealAccent, size: 28),
               SizedBox(width: 10),
               Text("Export Complete"),
@@ -391,6 +451,7 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
               ),
               const SizedBox(height: 12),
               Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.black,
@@ -398,7 +459,7 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                   border: Border.all(color: Colors.teal.shade900),
                 ),
                 child: Text(
-                  path,
+                  displayPath,
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
@@ -410,16 +471,14 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: path));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Path copied to clipboard!"),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
+              onPressed: () async {
+                try {
+                  await Gal.open();
+                } catch (e) {
+                  debugPrint("Error opening gallery: $e");
+                }
               },
-              child: const Text("Copy Path"),
+              child: const Text("Open Gallery"),
             ),
             ElevatedButton(
               onPressed: () {

@@ -39,6 +39,7 @@ dependencies:
   path_provider: ^2.1.6
   image_picker: ^1.2.3
   ffmpeg_kit_flutter_new: ^4.3.2
+  gal: ^2.3.2
 
 dev_dependencies:
   flutter_test:
