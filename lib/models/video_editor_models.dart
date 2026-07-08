@@ -22,6 +22,8 @@ class Project {
   String? thumbnailPath;
   final List<Track> tracks;
   bool isProtected;
+  String? protectionPassword;
+  DateTime? protectionExpiry;
 
   Project({
     required this.id,
@@ -32,6 +34,8 @@ class Project {
     this.thumbnailPath,
     required this.tracks,
     this.isProtected = false,
+    this.protectionPassword,
+    this.protectionExpiry,
   });
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +47,8 @@ class Project {
         'thumbnailPath': thumbnailPath,
         'tracks': tracks.map((t) => t.toJson()).toList(),
         'isProtected': isProtected,
+        'protectionPassword': protectionPassword,
+        'protectionExpiry': protectionExpiry?.toIso8601String(),
       };
 
   factory Project.fromJson(Map<String, dynamic> json) {
@@ -60,6 +66,10 @@ class Project {
           .map((t) => Track.fromJson(t as Map<String, dynamic>))
           .toList(),
       isProtected: json['isProtected'] as bool? ?? false,
+      protectionPassword: json['protectionPassword'] as String?,
+      protectionExpiry: json['protectionExpiry'] != null
+          ? DateTime.parse(json['protectionExpiry'] as String)
+          : null,
     );
   }
 
