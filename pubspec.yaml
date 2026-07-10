@@ -45,6 +45,9 @@ dependencies:
   flutter_tts: ^4.2.5
   record: ^7.1.1
   share_plus: ^10.1.0
+  video_editor: ^3.0.0
+  fraction: ^5.0.5
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

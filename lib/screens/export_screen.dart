@@ -138,7 +138,16 @@ class _ExportScreenState extends State<ExportScreen> {
         final durationSec = clip.durationMs / 1000.0;
         
         String node = '[v_trim_$i]';
-        String filter = '[$inputIdx:v]trim=start=$startSec:duration=$durationSec,setpts=PTS-STARTPTS,scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black';
+        String filter = '[$inputIdx:v]trim=start=$startSec:duration=$durationSec,setpts=PTS-STARTPTS';
+        if (clip.transform.cropMinX != 0.0 || clip.transform.cropMinY != 0.0 ||
+            clip.transform.cropMaxX != 1.0 || clip.transform.cropMaxY != 1.0) {
+          final cw = clip.transform.cropMaxX - clip.transform.cropMinX;
+          final ch = clip.transform.cropMaxY - clip.transform.cropMinY;
+          final cx = clip.transform.cropMinX;
+          final cy = clip.transform.cropMinY;
+          filter += ',crop=$cw*in_w:$ch*in_h:$cx*in_w:$cy*in_h';
+        }
+        filter += ',scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black';
 
         final adjust = clip.effects.firstWhere((e) => e.type == 'color_adjust', orElse: () => AdjustmentEffect(id: '')) as AdjustmentEffect;
         if (adjust.id.isNotEmpty) {
@@ -156,6 +165,11 @@ class _ExportScreenState extends State<ExportScreen> {
 
         if (clip.isAiEnhanced) {
           filter += ',eq=contrast=1.2:saturation=1.3';
+        }
+
+        if (clip.transform.rotation != 0.0) {
+          final rad = clip.transform.rotation * 3.14159265 / 180.0;
+          filter += ',rotate=$rad:fillcolor=black';
         }
 
         filterComplex += '$filter$node;';

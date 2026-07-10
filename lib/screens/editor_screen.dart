@@ -11,6 +11,8 @@ import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:gal/gal.dart';
+import 'package:video_editor/video_editor.dart';
+import '../crop_page.dart';
 import '../models/video_editor_models.dart';
 import '../services/project_manager.dart';
 import '../services/history_manager.dart';
@@ -63,6 +65,8 @@ class _EditorScreenState extends State<EditorScreen> {
   // Secondary audio player controllers for playback sync
   final Map<String, VideoPlayerController> _audioTrackControllers = {};
 
+  VideoEditorController? _clipEditorController;
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +82,7 @@ class _EditorScreenState extends State<EditorScreen> {
     _previewController?.dispose();
     _audioRecorder.dispose();
     _ttsController.dispose();
+    _clipEditorController?.dispose();
     for (var controller in _audioTrackControllers.values) {
       controller.dispose();
     }
@@ -499,10 +504,13 @@ class _EditorScreenState extends State<EditorScreen> {
 
   void _toggleDictation() async {
     if (!_speechAvailable) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Dictation speech-to-text not available on this device"), backgroundColor: Colors.amber),
-      );
-      return;
+      await _initSpeechRecognizer();
+      if (!_speechAvailable) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Dictation speech-to-text not available. Please grant microphone and speech recognition permissions in settings."), backgroundColor: Colors.amber),
+        );
+        return;
+      }
     }
 
     if (_isListening) {
@@ -658,7 +666,8 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _startRecording() async {
     try {
-      if (await _audioRecorder.hasPermission()) {
+      final hasPermission = await _audioRecorder.hasPermission();
+      if (hasPermission) {
         final directory = await getTemporaryDirectory();
         final path = '${directory.path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
@@ -684,6 +693,13 @@ class _EditorScreenState extends State<EditorScreen> {
         }
 
         _updateRecordingTimer();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Microphone permission denied. Please grant microphone access in settings to use voiceover."),
+            backgroundColor: Colors.amber,
+          ),
+        );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -776,18 +792,34 @@ class _EditorScreenState extends State<EditorScreen> {
     if (text.isEmpty) return;
 
     try {
-      final directory = await getTemporaryDirectory();
+      String baseDirPath;
+      if (Platform.isAndroid) {
+        final dir = await getExternalStorageDirectory();
+        baseDirPath = dir?.path ?? (await getApplicationSupportDirectory()).path;
+      } else {
+        baseDirPath = (await getApplicationDocumentsDirectory()).path;
+      }
+
       final fileName = 'tts_${DateTime.now().millisecondsSinceEpoch}.wav';
+      final filePath = '$baseDirPath/$fileName';
       
       if (Platform.isAndroid || Platform.isIOS) {
         await _flutterTts.synthesizeToFile(text, fileName);
       }
       
-      final filePath = '${directory.path}/$fileName';
+      // Speak for preview feedback
+      await _flutterTts.speak(text);
+
+      // Wait for synthesis file creation
+      int retry = 0;
       final file = File(filePath);
+      while (!await file.exists() && retry < 15) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        retry++;
+      }
+
       if (!await file.exists()) {
-        await file.writeAsBytes(List.filled(1000, 0));
-        await _flutterTts.speak(text);
+        throw Exception("TTS Synthesis file not created at $filePath");
       }
 
       final audioTrack = _project.tracks.firstWhere(
@@ -795,11 +827,25 @@ class _EditorScreenState extends State<EditorScreen> {
         orElse: () => Track(id: 'track_audio_1', type: TrackType.audio, zOrder: -1, clips: []),
       );
 
+      // Probe audio file duration
+      int durationMs = 4000;
+      final tempController = VideoPlayerController.file(file);
+      try {
+        await tempController.initialize();
+        durationMs = tempController.value.duration.inMilliseconds;
+        await tempController.dispose();
+      } catch (e) {
+        debugPrint("Probing TTS audio duration failed, estimating based on length: $e");
+        final wordCount = text.split(' ').length;
+        durationMs = ((wordCount / 2.5) * 1000).toInt().clamp(2000, 15000);
+        await tempController.dispose();
+      }
+
       final newClip = TimelineClip(
         id: 'tts_${DateTime.now().millisecondsSinceEpoch}',
         sourcePath: filePath,
         startInTimelineMs: _currentTimeMs,
-        durationMs: 4000,
+        durationMs: durationMs,
         startInSourceMs: 0,
         transform: ClipTransform(),
         effects: [],
@@ -822,6 +868,290 @@ class _EditorScreenState extends State<EditorScreen> {
         SnackBar(content: Text("TTS synthesis failed: $e"), backgroundColor: Colors.redAccent),
       );
     }
+  }
+
+  // ==========================================
+  // CLIP LEVEL EDITING CONTROLLERS & PANELS
+  // ==========================================
+
+  Future<void> _initClipEditorController(TimelineClip clip) async {
+    if (clip.sourcePath == null) return;
+
+    await _clipEditorController?.dispose();
+
+    final controller = VideoEditorController.file(
+      File(clip.sourcePath!),
+      minDuration: const Duration(milliseconds: 500),
+      maxDuration: const Duration(days: 365),
+    );
+
+    try {
+      await controller.initialize();
+      final double totalVideoDurationMs = controller.videoDuration.inMilliseconds.toDouble();
+      final double minVal = clip.startInSourceMs / totalVideoDurationMs;
+      final double maxVal = (clip.startInSourceMs + clip.durationMs) / totalVideoDurationMs;
+
+      controller.updateTrim(minVal.clamp(0.0, 1.0), maxVal.clamp(0.0, 1.0));
+      setState(() {
+        _clipEditorController = controller;
+      });
+    } catch (e) {
+      debugPrint("Clip Editor Controller initialization failed: $e");
+    }
+  }
+
+  void _openTrimPanel() {
+    setState(() {
+      _activePanel = 'trim';
+    });
+    _initClipEditorController(_selectedClip!);
+  }
+
+  void _openCoverPanel() {
+    setState(() {
+      _activePanel = 'cover';
+    });
+    _initClipEditorController(_selectedClip!);
+  }
+
+  Future<void> _openCropScreen() async {
+    final clip = _selectedClip;
+    if (clip == null || clip.sourcePath == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator(color: EditorTheme.playhead)),
+    );
+
+    final controller = VideoEditorController.file(
+      File(clip.sourcePath!),
+      minDuration: const Duration(milliseconds: 500),
+      maxDuration: const Duration(days: 365),
+    );
+
+    try {
+      await controller.initialize();
+      
+      // Load current crop values if any
+      if (clip.transform.cropMinX != 0.0 || clip.transform.cropMinY != 0.0 ||
+          clip.transform.cropMaxX != 1.0 || clip.transform.cropMaxY != 1.0) {
+        controller.updateCrop(
+          Offset(clip.transform.cropMinX, clip.transform.cropMinY),
+          Offset(clip.transform.cropMaxX, clip.transform.cropMaxY),
+        );
+      }
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Open CropPage
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => CropPage(controller: controller),
+        ),
+      );
+
+      // Save crop parameters back to the clip transform
+      setState(() {
+        clip.transform.cropMinX = controller.minCrop.dx;
+        clip.transform.cropMinY = controller.minCrop.dy;
+        clip.transform.cropMaxX = controller.maxCrop.dx;
+        clip.transform.cropMaxY = controller.maxCrop.dy;
+      });
+
+      _pushHistoryState();
+      await controller.dispose();
+    } catch (e) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Could not open crop screen: $e"), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
+  Widget _buildTrimPanel() {
+    final clip = _selectedClip!;
+    if (_clipEditorController == null || !_clipEditorController!.initialized) {
+      return const SizedBox(
+        height: 150,
+        child: Center(child: CircularProgressIndicator(color: EditorTheme.playhead)),
+      );
+    }
+
+    return _buildPanelWrapper(
+      title: "Trim Clip",
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            child: TrimSlider(
+              controller: _clipEditorController!,
+              height: 50,
+              horizontalMargin: 10,
+              child: TrimTimeline(
+                controller: _clipEditorController!,
+                padding: const EdgeInsets.only(top: 10),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _activePanel = 'none';
+                    _clipEditorController = null;
+                  });
+                },
+                child: const Text("Cancel", style: TextStyle(color: Colors.white70)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final controller = _clipEditorController!;
+                  final double startMs = controller.startTrim.inMilliseconds.toDouble();
+                  final double endMs = controller.endTrim.inMilliseconds.toDouble();
+                  final double durationMs = endMs - startMs;
+
+                  setState(() {
+                    clip.startInSourceMs = startMs.toInt();
+                    
+                    final track = _selectedTrack!;
+                    final oldDuration = clip.durationMs;
+                    clip.durationMs = durationMs.toInt();
+                    
+                    final deltaMs = clip.durationMs - oldDuration;
+                    final clipIndex = track.clips.indexOf(clip);
+                    for (int i = clipIndex + 1; i < track.clips.length; i++) {
+                      track.clips[i].startInTimelineMs += deltaMs;
+                    }
+
+                    _activePanel = 'none';
+                    _clipEditorController = null;
+                  });
+
+                  _pushHistoryState();
+                },
+                style: EditorTheme.getButtonStyle(isPrimary: true),
+                child: const Text("Apply Trim"),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoverPanel() {
+    if (_clipEditorController == null || !_clipEditorController!.initialized) {
+      return const SizedBox(
+        height: 150,
+        child: Center(child: CircularProgressIndicator(color: EditorTheme.playhead)),
+      );
+    }
+
+    return _buildPanelWrapper(
+      title: "Choose Cover Frame",
+      child: Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.all(10),
+                child: CoverSelection(
+                  controller: _clipEditorController!,
+                  size: 60,
+                  quantity: 8,
+                  selectedCoverBuilder: (cover, size) {
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        cover,
+                        const Icon(
+                          Icons.check_circle,
+                          color: Colors.tealAccent,
+                        )
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _activePanel = 'none';
+                    _clipEditorController = null;
+                  });
+                },
+                child: const Text("Cancel", style: TextStyle(color: Colors.white70)),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final controller = _clipEditorController!;
+                  setState(() {
+                    _activePanel = 'none';
+                  });
+                  
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => const Center(child: CircularProgressIndicator(color: EditorTheme.playhead)),
+                  );
+
+                  try {
+                    final config = CoverFFmpegVideoEditorConfig(controller);
+                    final execute = await config.getExecuteConfig();
+                    if (execute == null) {
+                      throw Exception("Failed to generate cover export config.");
+                    }
+
+                    final tempDir = await getTemporaryDirectory();
+                    final coverOutPath = '${tempDir.path}/cover_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                    
+                    final cmd = execute.command.replaceAll(execute.outputPath, coverOutPath);
+
+                    await FFmpegKit.execute(cmd);
+                    Navigator.of(context).pop();
+
+                    if (await File(coverOutPath).exists()) {
+                      setState(() {
+                        _project.thumbnailPath = coverOutPath;
+                      });
+                      _pushHistoryState();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Cover frame updated successfully!")),
+                      );
+                    } else {
+                      throw Exception("Output file was not created.");
+                    }
+                  } catch (e) {
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Failed to extract cover: $e"), backgroundColor: Colors.redAccent),
+                    );
+                  } finally {
+                    await controller.dispose();
+                    _clipEditorController = null;
+                  }
+                },
+                style: EditorTheme.getButtonStyle(isPrimary: true),
+                child: const Text("Select Cover"),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
   }
 
   // ==========================================
@@ -931,8 +1261,17 @@ class _EditorScreenState extends State<EditorScreen> {
         final startSec = clip.startInSourceMs / 1000.0;
         final durationSec = clip.durationMs / 1000.0;
         
-        String node = '[v_trim_$i]';
-        String filter = '[$inputIdx:v]trim=start=$startSec:duration=$durationSec,setpts=PTS-STARTPTS,scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black';
+        final String node = '[v_trim_$i]';
+        String filter = '[$inputIdx:v]trim=start=$startSec:duration=$durationSec,setpts=PTS-STARTPTS';
+        if (clip.transform.cropMinX != 0.0 || clip.transform.cropMinY != 0.0 ||
+            clip.transform.cropMaxX != 1.0 || clip.transform.cropMaxY != 1.0) {
+          final cw = clip.transform.cropMaxX - clip.transform.cropMinX;
+          final ch = clip.transform.cropMaxY - clip.transform.cropMinY;
+          final cx = clip.transform.cropMinX;
+          final cy = clip.transform.cropMinY;
+          filter += ',crop=$cw*in_w:$ch*in_h:$cx*in_w:$cy*in_h';
+        }
+        filter += ',scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black';
 
         final adjust = clip.effects.firstWhere((e) => e.type == 'color_adjust', orElse: () => AdjustmentEffect(id: '')) as AdjustmentEffect;
         if (adjust.id.isNotEmpty) {
@@ -950,6 +1289,11 @@ class _EditorScreenState extends State<EditorScreen> {
 
         if (clip.isAiEnhanced) {
           filter += ',eq=contrast=1.2:saturation=1.3';
+        }
+
+        if (clip.transform.rotation != 0.0) {
+          final rad = clip.transform.rotation * 3.14159265 / 180.0;
+          filter += ',rotate=$rad:fillcolor=black';
         }
 
         filterComplex += '$filter$node;';
@@ -1540,6 +1884,21 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
         );
       }
+
+      // Apply clip transform (rotation, scale, x, y, opacity) to the preview videoWidget
+      videoWidget = Transform.translate(
+        offset: Offset(activeClip.transform.x, activeClip.transform.y),
+        child: Transform.rotate(
+          angle: activeClip.transform.rotation * 3.14159265 / 180.0,
+          child: Transform.scale(
+            scale: activeClip.transform.scale,
+            child: Opacity(
+              opacity: activeClip.transform.opacity,
+              child: videoWidget,
+            ),
+          ),
+        ),
+      );
     }
 
     final List<Widget> overlayWidgets = [];
@@ -1864,6 +2223,10 @@ class _EditorScreenState extends State<EditorScreen> {
       return _buildChromaPanel();
     } else if (_activePanel == 'ai' && _selectedClip != null) {
       return _buildAIToolsPanel();
+    } else if (_activePanel == 'trim' && _selectedClip != null) {
+      return _buildTrimPanel();
+    } else if (_activePanel == 'cover' && _selectedClip != null) {
+      return _buildCoverPanel();
     }
     
     return _buildMainMenuPanel();
@@ -1890,6 +2253,27 @@ class _EditorScreenState extends State<EditorScreen> {
             label: "Delete",
             color: Colors.redAccent,
             onTap: hasSelection ? _deleteSelectedClip : null,
+          ),
+          _buildToolBtn(
+            icon: Icons.content_cut,
+            label: "Trim",
+            onTap: hasSelection && _selectedTrack?.type == TrackType.mainVideo
+                ? _openTrimPanel
+                : null,
+          ),
+          _buildToolBtn(
+            icon: Icons.crop_rounded,
+            label: "Crop",
+            onTap: hasSelection && _selectedTrack?.type == TrackType.mainVideo
+                ? _openCropScreen
+                : null,
+          ),
+          _buildToolBtn(
+            icon: Icons.portrait_rounded,
+            label: "Cover",
+            onTap: hasSelection && _selectedTrack?.type == TrackType.mainVideo
+                ? _openCoverPanel
+                : null,
           ),
           _buildToolBtn(
             icon: Icons.auto_awesome_rounded,
@@ -2041,6 +2425,8 @@ class _EditorScreenState extends State<EditorScreen> {
       title: "AI Tools Suite",
       child: Column(
         children: [
+          // AI Background Cutout: not yet implemented — needs real ML/processing backend
+          /*
           SwitchListTile(
             title: const Text("AI Background Cutout (PIP/Stickers)", style: TextStyle(fontSize: 13, color: Colors.white70)),
             value: clip.isAiBackgroundRemoved,
@@ -2053,6 +2439,7 @@ class _EditorScreenState extends State<EditorScreen> {
               _pushHistoryState();
             },
           ),
+          */
           SwitchListTile(
             title: const Text("AI Auto-Color Enhancer", style: TextStyle(fontSize: 13, color: Colors.white70)),
             subtitle: const Text("Bumps dynamic contrast and saturation", style: TextStyle(fontSize: 10, color: Colors.white30)),
@@ -2066,6 +2453,8 @@ class _EditorScreenState extends State<EditorScreen> {
               _pushHistoryState();
             },
           ),
+          // AI Audio Denoise: not yet implemented — needs real ML/processing backend
+          /*
           SwitchListTile(
             title: const Text("AI Audio Denoise", style: TextStyle(fontSize: 13, color: Colors.white70)),
             subtitle: const Text("Reduces background hum and wind noise", style: TextStyle(fontSize: 10, color: Colors.white30)),
@@ -2079,6 +2468,9 @@ class _EditorScreenState extends State<EditorScreen> {
               _pushHistoryState();
             },
           ),
+          */
+          // AI Voice Morph Effects: not yet implemented — needs real ML/processing backend
+          /*
           const SizedBox(height: 8),
           Row(
             children: [
@@ -2098,11 +2490,14 @@ class _EditorScreenState extends State<EditorScreen> {
               ],
             ),
           ),
+          */
         ],
       ),
     );
   }
 
+  // AI Voice Morph: not yet implemented — needs real ML/processing backend
+  /*
   Widget _buildVoiceChip(String value, String label) {
     final clip = _selectedClip!;
     final isSelected = clip.voiceEffect == value;
@@ -2122,6 +2517,7 @@ class _EditorScreenState extends State<EditorScreen> {
       ),
     );
   }
+  */
 
   // Keyframes Settings Panel
   Widget _buildKeyframesPanel() {

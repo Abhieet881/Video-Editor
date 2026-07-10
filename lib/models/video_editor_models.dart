@@ -238,6 +238,10 @@ class ClipTransform {
   double scale;
   double rotation;
   double opacity;
+  double cropMinX;
+  double cropMinY;
+  double cropMaxX;
+  double cropMaxY;
 
   ClipTransform({
     this.x = 0.0,
@@ -245,6 +249,10 @@ class ClipTransform {
     this.scale = 1.0,
     this.rotation = 0.0,
     this.opacity = 1.0,
+    this.cropMinX = 0.0,
+    this.cropMinY = 0.0,
+    this.cropMaxX = 1.0,
+    this.cropMaxY = 1.0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -253,6 +261,10 @@ class ClipTransform {
         'scale': scale,
         'rotation': rotation,
         'opacity': opacity,
+        'cropMinX': cropMinX,
+        'cropMinY': cropMinY,
+        'cropMaxX': cropMaxX,
+        'cropMaxY': cropMaxY,
       };
 
   factory ClipTransform.fromJson(Map<String, dynamic> json) {
@@ -262,6 +274,10 @@ class ClipTransform {
       scale: (json['scale'] as num?)?.toDouble() ?? 1.0,
       rotation: (json['rotation'] as num?)?.toDouble() ?? 0.0,
       opacity: (json['opacity'] as num?)?.toDouble() ?? 1.0,
+      cropMinX: (json['cropMinX'] as num?)?.toDouble() ?? 0.0,
+      cropMinY: (json['cropMinY'] as num?)?.toDouble() ?? 0.0,
+      cropMaxX: (json['cropMaxX'] as num?)?.toDouble() ?? 1.0,
+      cropMaxY: (json['cropMaxY'] as num?)?.toDouble() ?? 1.0,
     );
   }
 }
